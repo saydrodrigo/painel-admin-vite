@@ -20,6 +20,7 @@ import {
   People as PeopleIcon,
 } from "@mui/icons-material";
 import { NavLink } from "react-router-dom";
+import MaquinaCalendarioVisual from "./MaquinaCalendarioVisual"; // ajuste o caminho
 
 const drawerWidth = 240;
 
@@ -28,6 +29,7 @@ export default function Sidebar({ mobileOpen, handleDrawerToggle }) {
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
   const [openMaquinas, setOpenMaquinas] = useState(false);
   const [maquinas, setMaquinas] = useState(null); // null = carregando
+  const [maquinaSelecionada, setMaquinaSelecionada] = useState(null);
 
   const toggleMaquinas = () => setOpenMaquinas(!openMaquinas);
 
@@ -104,7 +106,10 @@ export default function Sidebar({ mobileOpen, handleDrawerToggle }) {
                 key={codmqp}
                 component={NavLink}
                 to={`/maquinas/${codmqp}`}
-                onClick={isMobile ? handleDrawerToggle : undefined}
+                o onClick={() => {
+                  setMaquinaSelecionada(codmqp);
+                  if (isMobile) handleDrawerToggle();
+                }}
                 sx={{ pl: 4 }}
               >
                 <ListItemIcon>
@@ -173,6 +178,11 @@ export default function Sidebar({ mobileOpen, handleDrawerToggle }) {
       open
     >
       {drawer}
+      {maquinaSelecionada && (
+        <div style={{ padding: "16px" }}>
+          <MaquinaCalendarioVisual codmaq={maquinaSelecionada} />
+        </div>
+      )}
     </Drawer>
   );
 }
