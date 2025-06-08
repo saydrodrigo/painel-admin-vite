@@ -14,10 +14,11 @@ const diaSemanaToStr = (dia) => {
 };
 
 export function useCalendarioDisponivel(calendarios = []) {
-  function validarDisponibilidade(DHINI, DHFIM) {
+  function validarDisponibilidade(DHINI, DHFIM, tempoTotalUtil) {
     const ini = DHINI instanceof Date ? DHINI : new Date(DHINI);
     const fim = DHFIM instanceof Date ? DHFIM : new Date(DHFIM);
-    const tempoNecessario = differenceInMinutes(fim, ini);
+    // const tempoNecessario = differenceInMinutes(fim, ini); // não usamos mais isso, pois o tempo é passado
+    const tempoNecessario = tempoTotalUtil; // usa o parâmetro passado
 
     let tempoDisponivel = 0;
     let diaAtual = new Date(ini.getFullYear(), ini.getMonth(), ini.getDate());
@@ -25,6 +26,18 @@ export function useCalendarioDisponivel(calendarios = []) {
     while (tempoDisponivel < tempoNecessario) {
       const diaSemana = getDay(diaAtual);
       const nomeDia = diaSemanaToStr(diaSemana);
+
+      // Se for sexta, checar se sábado e domingo não têm turno permitido.
+      if (diaSemana === 5) { // sexta
+        const sabadoPermitido = calendarios.some(cal => cal.tipo === "P" && cal.diasDaSemana['sabado']);
+        const domingoPermitido = calendarios.some(cal => cal.tipo === "P" && cal.diasDaSemana['domingo']);
+
+        if (!sabadoPermitido && !domingoPermitido) {
+          // pula sábado e domingo
+          diaAtual = addDays(diaAtual, 3); // pula 3 dias (sábado, domingo, segunda)
+          continue;
+        }
+      }
 
       // Filtra calendários válidos e ativos para o dia
       const periodosPermitidos = calendarios.filter(
@@ -42,7 +55,6 @@ export function useCalendarioDisponivel(calendarios = []) {
           fimPeriodo = addDays(fimPeriodo, 1); // cruza meia-noite
         }
 
-        // Subtrai os bloqueios do período
         let duracaoValida = differenceInMinutes(fimPeriodo, iniPeriodo);
 
         for (const bloco of bloqueios) {
@@ -52,14 +64,21 @@ export function useCalendarioDisponivel(calendarios = []) {
             fimBloco = addDays(fimBloco, 1);
           }
 
-          // Se o bloco está dentro do período permitido, desconta
           if (
             isBefore(iniBloco, fimPeriodo) &&
             !isBefore(fimBloco, iniPeriodo)
           ) {
             const inicio = iniBloco < iniPeriodo ? iniPeriodo : iniBloco;
             const fim = fimBloco > fimPeriodo ? fimPeriodo : fimBloco;
-            duracaoValida -= Math.max(0, differenceInMinutes(fim, inicio));
+            const duracaoBloco = Math.max(0, differenceInMinutes(fim, inicio));
+
+            duracaoValida -= duracaoBloco;
+
+            if (tempoDisponivel + duracaoValida < tempoNecessario) {
+              tempoDisponivel += Math.max(0, duracaoValida);
+              diaAtual = new Date(fimBloco);
+              continue;
+            }
           }
         }
 
@@ -69,7 +88,6 @@ export function useCalendarioDisponivel(calendarios = []) {
 
       diaAtual = addDays(diaAtual, 1);
 
-      // Se passou do fim da OP sem conseguir validar, quebra o loop
       if (isBefore(fim, diaAtual)) break;
     }
 

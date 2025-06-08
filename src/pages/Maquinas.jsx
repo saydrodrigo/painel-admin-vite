@@ -29,6 +29,7 @@ import {
 } from "@mui/material";
 import { useCalendarioMaquina } from "../hooks/useCalendarioMaquina";
 import { useCalendarioDisponivel } from "../hooks/useValidarDisponibilidade";
+import { calcularFimDaOP } from "../hooks/calcularFimDaOP";
 
 
 
@@ -46,7 +47,7 @@ export default function MaquinaDetalhes() {
   const [snackbarMensagem, setSnackbarMensagem] = useState("");
   const { calendario, loading2, erro } = useCalendarioMaquina(codmaq);
   const { validarDisponibilidade } = useCalendarioDisponivel(calendario || []);
-  console.log(calendario);
+
   useEffect(() => {
     async function fetchDados() {
       try {
@@ -164,7 +165,7 @@ export default function MaquinaDetalhes() {
       mostrarSnackbar("Apenas OPs com status 'Programado' podem ser reordenadas.");
       return;
     }
-    if (!validarDisponibilidade(dados[indice].DHINI, dados[indice].DHFIM)) {
+    if (!validarDisponibilidade(dados[indice].DHINI, dados[indice].DHFIM, minutosTotais)) {
       mostrarSnackbar('Horário da OP está fora do calendário da máquina');
       return;
     }
@@ -203,7 +204,7 @@ export default function MaquinaDetalhes() {
       // Converte HHMM para minutos totais
       const minutosTotais = hhmmToMinutes(Number(atual.TEMPOTOTAL));
 
-      const novaDHFim = addMinutes(novaDHIni, minutosTotais);
+      const novaDHFim = calcularFimDaOP(novaDHIni, minutosTotais, calendario);
 
       atual.DHINI = novaDHIni.toISOString();
       atual.DHFIM = novaDHFim.toISOString();
@@ -224,35 +225,63 @@ export default function MaquinaDetalhes() {
 
     const minutos = hhmmToMinutes(Number(opFixada.TEMPOTOTAL));
     const novoDHINI = dataHoraFixar;
-    const novoDHFIM = addMinutes(novoDHINI, minutos);
-    console.log(novoDHINI);
-    console.log(novoDHFIM);
-    // 🔍 Valida antes de aplicar
-    if (!validarDisponibilidade(novoDHINI, novoDHFIM)) {
+    const novoDHFIM = calcularFimDaOP(novoDHINI, minutos, calendario);
+
+    if (!validarDisponibilidade(novoDHINI, novoDHFIM, minutos)) {
       mostrarSnackbar('Horário da OP está fora do calendário da máquina');
       return;
     }
 
-    // ✅ Atualiza com os valores validados
+    // Atualiza a OP fixada
     opFixada.DHINI = novoDHINI.toISOString();
     opFixada.DHFIM = novoDHFIM.toISOString();
 
-    // Remove da lista antiga e reinsere
+    // Remove OP fixada da lista
     novaLista.splice(indiceFixar, 1);
-    novaLista.push(opFixada);
 
+    // Insere a OP fixada na lista ordenada
+    novaLista.push(opFixada);
     novaLista.sort((a, b) => {
       const d1 = a.DHINI ? parseISO(a.DHINI) : new Date(8640000000000000);
       const d2 = b.DHINI ? parseISO(b.DHINI) : new Date(8640000000000000);
       return d1 - d2;
     });
 
+    // Encontra o índice da OP fixada
     const novaPosicao = novaLista.findIndex(op => op.NUOP === opFixada.NUOP);
+
+    // Agora empurra para baixo as OPs que estejam com conflito de horário
+    // Percorre da novaPosicao + 1 em diante e, se o início da OP
+    // anterior for maior ou igual que a OP atual, desloca a atual para
+    // iniciar após o fim da anterior
+
+    for (let i = novaPosicao + 1; i < novaLista.length; i++) {
+      const anterior = novaLista[i - 1];
+      const atual = novaLista[i];
+
+      if (atual.STATUS !== "Programado") continue;
+
+      const inicioAnterior = parseISO(anterior.DHFIM);
+      const inicioAtual = parseISO(atual.DHINI);
+
+      if (inicioAtual <= inicioAnterior) {
+        // desloca atual para começar após o fim da anterior
+        const minutosTotaisAtual = hhmmToMinutes(Number(atual.TEMPOTOTAL));
+        const novoInicio = inicioAnterior;
+        const novoFim = calcularFimDaOP(novoInicio, minutosTotaisAtual, calendario);
+
+        atual.DHINI = novoInicio.toISOString();
+        atual.DHFIM = novoFim.toISOString();
+      }
+    }
+
+    // Por fim, recalcula em cascata para garantir integridade
     const nova = recalcularEmCascata(novaLista, novaPosicao + 1);
 
     setDados(nova);
     setFixarDialogAberto(false);
   };
+
 
 
   const programarOP = (opSelecionada) => {
@@ -282,8 +311,9 @@ export default function MaquinaDetalhes() {
 
     const minutosTotais = hhmmToMinutes(Number(opSelecionada.TEMPOTOTAL));
 
-    const novaDHFIM = new Date(novaDHINI.getTime() + minutosTotais * 60 * 1000);
-    if (!validarDisponibilidade(novaDHINI, novaDHFIM)) {
+    const novaDHFIM = calcularFimDaOP(novaDHINI, minutosTotais, calendario);
+
+    if (!validarDisponibilidade(novaDHINI, novaDHFIM, minutosTotais)) {
       mostrarSnackbar('Horário da OP está fora do calendário da máquina');
       return;
     }

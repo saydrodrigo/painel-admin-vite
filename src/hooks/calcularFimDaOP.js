@@ -1,4 +1,4 @@
-import { getDay, addDays, differenceInMinutes } from 'date-fns';
+import { getDay, addDays, differenceInMinutes, isSameDay, addMinutes } from 'date-fns';
 
 const aplicarHorario = (data, horario) => {
   const hora = Math.floor(horario / 100);
@@ -33,43 +33,46 @@ export function calcularFimDaOP(DHINI, tempoNecessarioMinutos, calendarios = [])
       let iniPeriodo = aplicarHorario(diaAtual, parseInt(periodo.hrIni));
       let fimPeriodo = aplicarHorario(diaAtual, parseInt(periodo.hrFim));
       if (parseInt(periodo.hrFim) < parseInt(periodo.hrIni)) {
-        fimPeriodo = addDays(fimPeriodo, 1); // cruza meia-noite
+        fimPeriodo = addDays(fimPeriodo, 1);
       }
 
-      // Se ainda não chegamos ao iniPeriodo, pula esse bloco
       if (fimPeriodo <= inicio) continue;
 
-      // Se estamos no primeiro dia e início é depois do início do período, começa do ponto real
       if (isSameDay(diaAtual, inicio)) {
         if (inicio > iniPeriodo && inicio < fimPeriodo) {
           iniPeriodo = inicio;
         }
-        if (inicio >= fimPeriodo) continue; // período já passou
+        if (inicio >= fimPeriodo) continue;
       }
 
-      // Desconta bloqueios
-      let duracao = differenceInMinutes(fimPeriodo, iniPeriodo);
+      let cursor = new Date(iniPeriodo);
 
-      for (const bloco of bloqueios) {
-        let iniBloco = aplicarHorario(diaAtual, parseInt(bloco.hrIni));
-        let fimBloco = aplicarHorario(diaAtual, parseInt(bloco.hrFim));
-        if (parseInt(bloco.hrFim) < parseInt(bloco.hrIni)) {
-          fimBloco = addDays(fimBloco, 1);
+      while (cursor < fimPeriodo && tempoRestante > 0) {
+        // Verifica se há bloqueio ativo no minuto atual
+        const bloqueio = bloqueios.find(bloco => {
+          let iniBloco = aplicarHorario(diaAtual, parseInt(bloco.hrIni));
+          let fimBloco = aplicarHorario(diaAtual, parseInt(bloco.hrFim));
+          if (parseInt(bloco.hrFim) < parseInt(bloco.hrIni)) {
+            fimBloco = addDays(fimBloco, 1);
+          }
+          return cursor >= iniBloco && cursor < fimBloco;
+        });
+
+        if (bloqueio) {
+          // pula para o fim do bloqueio
+          cursor = aplicarHorario(diaAtual, parseInt(bloqueio.hrFim));
+          continue;
         }
 
-        if (fimBloco <= iniPeriodo || iniBloco >= fimPeriodo) continue;
-
-        const sobreIni = iniBloco < iniPeriodo ? iniPeriodo : iniBloco;
-        const sobreFim = fimBloco > fimPeriodo ? fimPeriodo : fimBloco;
-        duracao -= Math.max(0, differenceInMinutes(sobreFim, sobreIni));
+        // avança 1 minuto de produção
+        cursor = addMinutes(cursor, 1);
+        tempoRestante -= 1;
       }
 
-      const minutosUsados = Math.min(duracao, tempoRestante);
-      tempoRestante -= minutosUsados;
-
-      // Calcula fim real
-      fimEstimado = new Date(iniPeriodo.getTime() + minutosUsados * 60000);
-      if (tempoRestante <= 0) break;
+      if (tempoRestante <= 0) {
+        fimEstimado = cursor;
+        break;
+      }
     }
 
     diaAtual = addDays(diaAtual, 1);
