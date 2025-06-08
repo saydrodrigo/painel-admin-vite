@@ -1,50 +1,62 @@
-import { addMinutes, addDays, setHours, setMinutes, setSeconds, setMilliseconds } from "date-fns";
+import { getDay, addDays, setHours, setMinutes, setSeconds, setMilliseconds } from "date-fns";
 
 /**
- * Verifica se o dia da semana está disponível no calendário (com base no tipo 'P').
+ * Encontra o próximo horário produtivo válido no calendário.
+ * Ajusta o horário para o início do turno produtivo (menor hrIni do dia).
  *
- * @param {Date} data - Data a ser verificada.
- * @param {Array} calendario - Lista de objetos com diasDaSemana e tipo 'P' ou 'A'.
- * @returns {boolean} - True se o dia estiver disponível para produção.
+ * @param {Date} tentativa - Data/hora inicial.
+ * @param {Array} calendarios - Lista de calendários da máquina.
+ * @returns {Date|null} - Próxima data válida ajustada para o início do turno ou null se não houver.
  */
-function diaPermitidoNoCalendario(data, calendario) {
-  const diaSemanaIndex = data.getDay(); // 0 = domingo, ..., 6 = sábado
-  const dias = ["domingo", "segunda", "terca", "quarta", "quinta", "sexta", "sabado"];
-  const nomeDia = dias[diaSemanaIndex];
+export function encontrarHorarioValidoParaOP(tentativa, calendarios) {
+  const diaSemanaMap = ['domingo', 'segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado'];
 
-  const periodosProdutivos = calendario.filter(item => item.tipo === "P");
+  const haDiaProdutivo = diaSemanaMap.some(dia =>
+    calendarios.some(cal => cal.tipo === 'P' && cal.diasDaSemana[dia])
+  );
+  if (!haDiaProdutivo) return null;
 
-  return periodosProdutivos.some(item => item.diasDaSemana[nomeDia]);
-}
+  let tentativas = 0;
+  const maxTentativas = 365;
 
-/**
- * Encontra o próximo horário válido no calendário da máquina (valida apenas o dia).
- *
- * @param {Date} tentativaInicial - Data/hora de início sugerida.
- * @param {number} duracaoMinutos - Duração da OP em minutos.
- * @param {Function} validarDisponibilidade - Função que valida um intervalo.
- * @param {Array} calendario - Array de objetos de calendário (com diasDaSemana e tipo).
- * @returns {Date} - Data de início válida.
- */
-export function encontrarHorarioValidoParaOP(tentativaInicial, duracaoMinutos, validarDisponibilidade, calendario) {
-  let tentativa = new Date(tentativaInicial);
+  while (tentativas < maxTentativas) {
+    const diaSemana = diaSemanaMap[getDay(tentativa)];
 
-  const maxTentativas = 288;
-  let count = 0;
+    const produtivosDia = calendarios.filter(cal =>
+      cal.tipo === 'P' && cal.diasDaSemana[diaSemana]
+    );
 
-  while (true) {
-    if (!diaPermitidoNoCalendario(tentativa, calendario)) {
-      // Dia inválido -> ir para o próximo dia às 00:00
-      tentativa = setHours(setMinutes(setSeconds(setMilliseconds(tentativa, 0), 0), 0), 0);
-      tentativa = addDays(tentativa, 1);
-      count++;
-      if (count > maxTentativas) {
-        throw new Error("Nenhum dia válido encontrado nos próximos 24 ciclos.");
+    if (produtivosDia.length > 0) {
+      // Pega o menor horário de início do turno do dia (hrIni)
+      const menorHrIni = produtivosDia.reduce((menor, cal) => {
+        return cal.hrIni < menor ? cal.hrIni : menor;
+      }, '9999');
+
+      const hora = parseInt(menorHrIni.substring(0, 2), 10);
+      const minuto = parseInt(menorHrIni.substring(2, 4), 10);
+
+      // Ajusta a tentativa para o horário do início do turno
+      let tentativaComHorario = setHours(tentativa, hora);
+      tentativaComHorario = setMinutes(tentativaComHorario, minuto);
+      tentativaComHorario = setSeconds(tentativaComHorario, 0);
+      tentativaComHorario = setMilliseconds(tentativaComHorario, 0);
+
+      // Verifica se há bloqueios neste horário
+      const bloqueios = calendarios.filter(cal =>
+        cal.tipo === 'A' &&
+        cal.diasDaSemana[diaSemana] &&
+        menorHrIni >= cal.hrIni &&
+        menorHrIni <= cal.hrFim
+      );
+
+      if (bloqueios.length === 0) {
+        return tentativaComHorario;
       }
-      continue;
     }
 
-    // Validação apenas do dia — não verifica hora ainda
-    return tentativa;
+    tentativa = addDays(tentativa, 1);
+    tentativas++;
   }
+
+  return null; // Não encontrou em 365 dias
 }

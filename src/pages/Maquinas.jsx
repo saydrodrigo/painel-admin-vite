@@ -304,28 +304,36 @@ export default function MaquinaDetalhes() {
 
     const idxSelecionado = listaAtual.findIndex(op => op.NUOP === opSelecionada.NUOP);
 
-    let ultimaProgramadaAntes = null;
-    for (let i = idxSelecionado - 1; i >= 0; i--) {
-      if (listaAtual[i].STATUS === "Programado" && listaAtual[i].DHFIM) {
-        ultimaProgramadaAntes = listaAtual[i];
-        break;
+    let tentativaInicio;
+
+    if (idxSelecionado === 0) {
+      // É o primeiro item da fila → usar encontrarHorarioValidoParaOP
+      tentativaInicio = encontrarHorarioValidoParaOP(new Date(), calendario);
+    } else {
+      // Para os demais, usar o fim da OP anterior
+      let ultimaProgramadaAntes = null;
+      for (let i = idxSelecionado - 1; i >= 0; i--) {
+        if (listaAtual[i].STATUS === "Programado" && listaAtual[i].DHFIM) {
+          ultimaProgramadaAntes = listaAtual[i];
+          break;
+        }
       }
+
+      tentativaInicio = ultimaProgramadaAntes?.DHFIM
+        ? new Date(ultimaProgramadaAntes.DHFIM)
+        : new Date();
     }
 
     const minutosTotais = hhmmToMinutes(Number(opSelecionada.TEMPOTOTAL));
 
-    let tentativaInicio = ultimaProgramadaAntes?.DHFIM
-      ? new Date(ultimaProgramadaAntes.DHFIM)
-      : new Date();
-
-    const novaDHINI = encontrarHorarioValidoParaOP(tentativaInicio, minutosTotais, validarDisponibilidade);
+    const novaDHINI = tentativaInicio;
     const novaDHFIM = calcularFimDaOP(novaDHINI, minutosTotais, calendario);
-
 
     if (!validarDisponibilidade(novaDHINI, novaDHFIM, minutosTotais)) {
       mostrarSnackbar('Horário da OP está fora do calendário da máquina');
       return;
     }
+
     const novaOp = {
       ...opSelecionada,
       STATUS: "Programado",
@@ -339,6 +347,7 @@ export default function MaquinaDetalhes() {
 
     console.log("OP programada com hierarquia:", novaOp);
   };
+
 
   const mostrarSnackbar = (mensagem) => {
     setSnackbarMensagem(mensagem);
@@ -359,6 +368,8 @@ export default function MaquinaDetalhes() {
     if (!referenciaAtual) {
       // Se nenhuma estiver programada ainda, usa o momento atual
       referenciaAtual = new Date().toISOString();
+      referenciaAtual = encontrarHorarioValidoParaOP(new Date(), calendario).toISOString();
+
     }
 
     const novaLista = listaAtual.map(op => {
