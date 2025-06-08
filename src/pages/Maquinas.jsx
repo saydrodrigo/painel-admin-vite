@@ -13,6 +13,7 @@ import { LocalizationProvider, DateTimePicker } from "@mui/x-date-pickers";
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { ptBR } from 'date-fns/locale';
 import { Snackbar, Alert } from "@mui/material";
+import { encontrarHorarioValidoParaOP } from "../hooks/encontrarHorarioValidoParaOP";
 
 import {
   Typography,
@@ -232,14 +233,14 @@ export default function MaquinaDetalhes() {
       return;
     }
 
-    // Atualiza a OP fixada
+    // Atualiza horários fixados
     opFixada.DHINI = novoDHINI.toISOString();
     opFixada.DHFIM = novoDHFIM.toISOString();
 
-    // Remove OP fixada da lista
+    // Remove da posição original
     novaLista.splice(indiceFixar, 1);
 
-    // Insere a OP fixada na lista ordenada
+    // Adiciona novamente e reordena por DHINI
     novaLista.push(opFixada);
     novaLista.sort((a, b) => {
       const d1 = a.DHINI ? parseISO(a.DHINI) : new Date(8640000000000000);
@@ -247,42 +248,50 @@ export default function MaquinaDetalhes() {
       return d1 - d2;
     });
 
-    // Encontra o índice da OP fixada
-    const novaPosicao = novaLista.findIndex(op => op.NUOP === opFixada.NUOP);
+    // Garante prioridade: identifica a nova posição da OP fixada
+    const posFixada = novaLista.findIndex(op => op.NUOP === opFixada.NUOP);
 
-    // Agora empurra para baixo as OPs que estejam com conflito de horário
-    // Percorre da novaPosicao + 1 em diante e, se o início da OP
-    // anterior for maior ou igual que a OP atual, desloca a atual para
-    // iniciar após o fim da anterior
+    // Empurra todas as OPs que entrarem em conflito com ela
+    for (let i = 0; i < novaLista.length; i++) {
+      if (i === posFixada) continue;
 
-    for (let i = novaPosicao + 1; i < novaLista.length; i++) {
-      const anterior = novaLista[i - 1];
       const atual = novaLista[i];
 
+      // Apenas OPs programadas podem ser deslocadas
       if (atual.STATUS !== "Programado") continue;
 
-      const inicioAnterior = parseISO(anterior.DHFIM);
-      const inicioAtual = parseISO(atual.DHINI);
+      const iniAtual = parseISO(atual.DHINI);
+      const fimAtual = parseISO(atual.DHFIM);
+      const iniFixada = parseISO(opFixada.DHINI);
+      const fimFixada = parseISO(opFixada.DHFIM);
 
-      if (inicioAtual <= inicioAnterior) {
-        // desloca atual para começar após o fim da anterior
-        const minutosTotaisAtual = hhmmToMinutes(Number(atual.TEMPOTOTAL));
-        const novoInicio = inicioAnterior;
-        const novoFim = calcularFimDaOP(novoInicio, minutosTotaisAtual, calendario);
+      // Se houver sobreposição (simples)
+      const haConflito = !(fimAtual <= iniFixada || iniAtual >= fimFixada);
 
-        atual.DHINI = novoInicio.toISOString();
+      if (haConflito) {
+        // Reposiciona a OP após a OP fixada
+        const duracao = hhmmToMinutes(Number(atual.TEMPOTOTAL));
+        const novoIni = fimFixada;
+        const novoFim = calcularFimDaOP(novoIni, duracao, calendario);
+
+        atual.DHINI = novoIni.toISOString();
         atual.DHFIM = novoFim.toISOString();
       }
     }
 
-    // Por fim, recalcula em cascata para garantir integridade
+    // Por fim, reordena novamente e recalcula após a OP fixada
+    novaLista.sort((a, b) => {
+      const d1 = a.DHINI ? parseISO(a.DHINI) : new Date(8640000000000000);
+      const d2 = b.DHINI ? parseISO(b.DHINI) : new Date(8640000000000000);
+      return d1 - d2;
+    });
+
+    const novaPosicao = novaLista.findIndex(op => op.NUOP === opFixada.NUOP);
     const nova = recalcularEmCascata(novaLista, novaPosicao + 1);
 
     setDados(nova);
     setFixarDialogAberto(false);
   };
-
-
 
   const programarOP = (opSelecionada) => {
     const listaAtual = dados
@@ -303,15 +312,15 @@ export default function MaquinaDetalhes() {
       }
     }
 
-    const novaDHINI = ultimaProgramadaAntes?.DHFIM
+    const minutosTotais = hhmmToMinutes(Number(opSelecionada.TEMPOTOTAL));
+
+    let tentativaInicio = ultimaProgramadaAntes?.DHFIM
       ? new Date(ultimaProgramadaAntes.DHFIM)
       : new Date();
 
-    // Conversão do HHMM para minutos totais
-
-    const minutosTotais = hhmmToMinutes(Number(opSelecionada.TEMPOTOTAL));
-
+    const novaDHINI = encontrarHorarioValidoParaOP(tentativaInicio, minutosTotais, validarDisponibilidade);
     const novaDHFIM = calcularFimDaOP(novaDHINI, minutosTotais, calendario);
+
 
     if (!validarDisponibilidade(novaDHINI, novaDHFIM, minutosTotais)) {
       mostrarSnackbar('Horário da OP está fora do calendário da máquina');
@@ -336,7 +345,88 @@ export default function MaquinaDetalhes() {
     setSnackbarAberto(true);
   };
 
+  const programarTodasOPs = () => {
+    const listaAtual = [...dados];
 
+    // Pega todas as OPs que ainda não estão programadas
+    const naoProgramadas = listaAtual.filter(op => op.STATUS !== "Programado");
+
+    // Pega a última programada (com DHFIM válido)
+    let referenciaAtual = listaAtual
+      .filter(op => op.STATUS === "Programado" && op.DHFIM)
+      .sort((a, b) => parseISO(b.DHFIM) - parseISO(a.DHFIM))[0]?.DHFIM;
+
+    if (!referenciaAtual) {
+      // Se nenhuma estiver programada ainda, usa o momento atual
+      referenciaAtual = new Date().toISOString();
+    }
+
+    const novaLista = listaAtual.map(op => {
+      if (op.STATUS === "Programado") return op;
+
+      const minutosTotais = hhmmToMinutes(Number(op.TEMPOTOTAL));
+      const novaDHINI = parseISO(referenciaAtual);
+      const novaDHFIM = calcularFimDaOP(novaDHINI, minutosTotais, calendario);
+
+      // Verifica disponibilidade
+      if (!validarDisponibilidade(novaDHINI, novaDHFIM, minutosTotais)) {
+        mostrarSnackbar(`Horário da OP ${op.NUOP} está fora do calendário.`);
+        return op; // mantém inalterada
+      }
+
+      // Atualiza a OP e ajusta a referência
+      referenciaAtual = novaDHFIM.toISOString();
+
+      return {
+        ...op,
+        STATUS: "Programado",
+        DHINI: novaDHINI.toISOString(),
+        DHFIM: novaDHFIM.toISOString()
+      };
+    });
+
+    setDados(novaLista);
+  };
+
+  const limparDatasOPs = () => {
+    const novaLista = dados.map(op => {
+      if (op.STATUS === "Programado") {
+        return op; // mantém datas
+      }
+
+      return {
+        ...op,
+        DHINI: null,
+        DHFIM: null
+      };
+    });
+
+    setDados(novaLista);
+    mostrarSnackbar("Datas das OPs não programadas foram limpas.");
+  };
+
+  const desprogramarOPs = () => {
+    const novaLista = dados.map(op => {
+      if (op.STATUS === "Programado") {
+        return {
+          ...op,
+          STATUS: "Aguardando Programação",
+          DHINI: null,
+          DHFIM: null
+        };
+      }
+
+      // Para demais OPs: apenas limpar datas
+      return {
+        ...op,
+        DHINI: null,
+        DHFIM: null
+      };
+    });
+
+    setDados(novaLista);
+    mostrarSnackbar("Todas as OPs foram desprogramadas e tiveram suas datas limpas.");
+  };
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3, p: 2 }}>
@@ -407,9 +497,23 @@ export default function MaquinaDetalhes() {
       </Paper>
 
       <Paper sx={{ p: 3 }}>
-        <Typography variant="h5" gutterBottom>
-          Próximas
-        </Typography>
+        <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
+          <Typography variant="h5">Próximas</Typography>
+          <Box display="flex" gap={1}>
+            <Button variant="contained" color="primary" onClick={programarTodasOPs}>
+              Programar Todas
+            </Button>
+            <Button variant="outlined" color="secondary" onClick={limparDatasOPs}>
+              Limpar Datas
+            </Button>
+            <Button variant="outlined" color="error" onClick={desprogramarOPs}>
+              Desprogramar
+            </Button>
+          </Box>
+        </Box>
+
+
+
 
         {dados?.length > 0 ? (
           <Table size="small">

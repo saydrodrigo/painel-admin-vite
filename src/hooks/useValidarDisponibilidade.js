@@ -19,7 +19,7 @@ export function useCalendarioDisponivel(calendarios = []) {
     const fim = DHFIM instanceof Date ? DHFIM : new Date(DHFIM);
     // const tempoNecessario = differenceInMinutes(fim, ini); // não usamos mais isso, pois o tempo é passado
     const tempoNecessario = tempoTotalUtil; // usa o parâmetro passado
-
+    console.log(calendarios);
     let tempoDisponivel = 0;
     let diaAtual = new Date(ini.getFullYear(), ini.getMonth(), ini.getDate());
 
