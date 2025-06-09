@@ -1,6 +1,6 @@
 // src/pages/MaquinaDetalhes.jsx
 import React, { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useLocation, useParams } from "react-router-dom";
 import { format, parseISO } from 'date-fns';
 import { addMinutes } from 'date-fns';
 import { IconButton, Tooltip } from "@mui/material";
@@ -14,7 +14,6 @@ import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { ptBR } from 'date-fns/locale';
 import { Snackbar, Alert } from "@mui/material";
 import { encontrarHorarioValidoParaOP } from "../hooks/encontrarHorarioValidoParaOP";
-
 import {
   Typography,
   Table,
@@ -48,6 +47,14 @@ export default function MaquinaDetalhes() {
   const [snackbarMensagem, setSnackbarMensagem] = useState("");
   const { calendario, loading2, erro } = useCalendarioMaquina(codmaq);
   const { validarDisponibilidade } = useCalendarioDisponivel(calendario || []);
+  const [ordenacaoEntregaAsc, setOrdenacaoEntregaAsc] = useState(true);
+  const location = useLocation();
+  const nomeMaquina = location.state?.nome;
+  const [linhaExpandida, setLinhaExpandida] = useState(null);
+  const [detalheOP, setDetalheOP] = useState(null);
+  const [loadingDetalhe, setLoadingDetalhe] = useState(false);
+
+
 
   useEffect(() => {
     async function fetchDados() {
@@ -157,6 +164,49 @@ export default function MaquinaDetalhes() {
       setDados(nova);
     }
   };
+
+  const buscarDetalheOP = async (nuop, codatividade) => {
+    try {
+      setLoadingDetalhe(true);
+      setDetalheOP(null);
+
+      const query = `
+      SELECT
+         MQP.CODMQP
+        ,MQP.NOME
+        ,SER.DESCRPROD AS SERVICO
+        ,MIN(A.DHINICIO) AS INI
+        ,MAX(A.DHFIM) AS FIM
+        ,SUM(DATEDIFF(MINUTE, A.DHINICIO, A.DHFIM)) AS MINUTOS
+        ,SUM(A.QTD) AS QTD
+        ,USU.CODUSU
+        ,USU.NOMEUSU
+      FROM sankhya.AD_CADAPONTPROD A
+      LEFT JOIN sankhya.TSIUSU USU ON USU.CODUSU = A.CODOPERADOR
+      LEFT JOIN sankhya.TPRMQP MQP ON MQP.CODMQP = A.CODMQP
+      LEFT JOIN sankhya.TGFPRO SER ON SER.CODPROD = A.CODATIVIDADE
+      WHERE A.NUOP = ${nuop}
+        AND A.CODATIVIDADE = ${codatividade}
+        AND A.CODMQP = ${codmaq}
+      GROUP BY MQP.CODMQP, MQP.NOME, SER.DESCRPROD, USU.CODUSU, USU.NOMEUSU
+    `;
+
+      const response = await fetch("http://192.168.2.3:8081/api/crud/select", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(query),
+      });
+
+      const data = await response.json();
+      setDetalheOP(data);
+    } catch (error) {
+      console.error("Erro ao buscar detalhes da OP:", error);
+      setDetalheOP([]);
+    } finally {
+      setLoadingDetalhe(false);
+    }
+  };
+
 
 
 
@@ -305,10 +355,11 @@ export default function MaquinaDetalhes() {
     const idxSelecionado = listaAtual.findIndex(op => op.NUOP === opSelecionada.NUOP);
 
     let tentativaInicio;
-
+    console.log(idxSelecionado);
     if (idxSelecionado === 0) {
       // É o primeiro item da fila → usar encontrarHorarioValidoParaOP
       tentativaInicio = encontrarHorarioValidoParaOP(new Date(), calendario);
+      console.log(tentativaInicio);
     } else {
       // Para os demais, usar o fim da OP anterior
       let ultimaProgramadaAntes = null;
@@ -439,10 +490,26 @@ export default function MaquinaDetalhes() {
     mostrarSnackbar("Todas as OPs foram desprogramadas e tiveram suas datas limpas.");
   };
 
+  const ordenarPorDataEntrega = () => {
+    const novaOrdenacao = !ordenacaoEntregaAsc;
+    setOrdenacaoEntregaAsc(novaOrdenacao);
+
+    const dadosOrdenados = [...dados].sort((a, b) => {
+      const d1 = parseISO(a.DTENTREGA);
+      const d2 = parseISO(b.DTENTREGA);
+      return novaOrdenacao ? d1 - d2 : d2 - d1;
+    });
+
+    setDados(dadosOrdenados);
+  };
+
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3, p: 2 }}>
       {/* Primeiro Paper: tabela */}
       {/* Segundo Paper: conteúdo adicional */}
+      <Typography variant="h6" gutterBottom>
+        {nomeMaquina}
+      </Typography>
       <Paper sx={{ p: 3 }}>
         <Typography variant="h6" gutterBottom>
           Status das OPs
@@ -475,36 +542,81 @@ export default function MaquinaDetalhes() {
           Em Andamento
         </Typography>
 
-        {dadosEmAndamento?.length > 0 ? (
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell>Op</TableCell>
-                <TableCell>Dt. Ent.</TableCell>
-                <TableCell>Produto(s)</TableCell>
-                <TableCell>Atividade</TableCell>
-                <TableCell>Etapa</TableCell>
-                <TableCell>Tempo Total</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {dadosEmAndamento
+        {dadosEmAndamento.map((row, idx) => {
+          const estaExpandido = linhaExpandida === idx;
+          const tiragemPrevista = Number(row.TIRAGEM);
+          const tempoPrevistoMin = hhmmToMinutes(Number(row.TEMPOTOTAL));
 
-                .map((row, idx) => (
-                  <TableRow key={idx}>
-                    <TableCell>{row.NUOP}</TableCell>
-                    <TableCell>{format(parseISO(row.DTENTREGA), "dd/MM/yyyy")}</TableCell>
-                    <TableCell>{row.PRODUTOS}</TableCell>
-                    <TableCell>{row.DESCRPROD}</TableCell>
-                    <TableCell>{row.ETAPA}</TableCell>
-                    <TableCell>{row.TEMPOTOTALFORMATADO}</TableCell>
-                  </TableRow>
-                ))}
-            </TableBody>
-          </Table>
-        ) : (
-          <Typography variant="body1">Nenhum dado encontrado.</Typography>
-        )}
+          return (
+            <React.Fragment key={idx}>
+              <TableRow
+                hover
+                onClick={() => {
+                  if (linhaExpandida === idx) {
+                    setLinhaExpandida(null);
+                    setDetalheOP(null);
+                  } else {
+                    setLinhaExpandida(idx);
+
+
+                    buscarDetalheOP(row.NUOP, row.CODATIVIDADE);
+                  }
+                }}
+
+                sx={{ cursor: "pointer" }}
+              >
+                <TableCell>{row.NUOP}</TableCell>
+                <TableCell>{format(parseISO(row.DTENTREGA), "dd/MM/yyyy")}</TableCell>
+                <TableCell>{row.PRODUTOS}</TableCell>
+                <TableCell>{row.DESCRPROD}</TableCell>
+                <TableCell>{row.ETAPA}</TableCell>
+                <TableCell>{row.TEMPOTOTALFORMATADO}</TableCell>
+              </TableRow>
+
+              {linhaExpandida === idx && (
+
+                <TableRow>
+                  <TableCell colSpan={6} sx={{ bgcolor: "grey.100" }}>
+                    {loadingDetalhe ? (
+                      <CircularProgress size={20} />
+                    ) : detalheOP && detalheOP.length > 0 ? (
+                      <Box sx={{ p: 1 }}>
+                        {detalheOP.map((item, i) => (
+
+                          <Box key={i} sx={{ mb: 1 }}>
+                            <Typography variant="body2"><strong>Operador:</strong> {item.NOMEUSU} ({item.CODUSU})</Typography>
+                            <Typography variant="body2"><strong>Serviço:</strong> {item.SERVICO}</Typography>
+                            <Typography variant="body2"><strong>Período:</strong> {format(parseISO(item.INI), "dd/MM/yyyy HH:mm")} - {format(parseISO(item.FIM), "dd/MM/yyyy HH:mm")}</Typography>
+                            <Typography variant="body2"><strong>Tempo Rodando Apontado:</strong> {item.MINUTOS} minutos</Typography>
+                            <Typography variant="body2"><strong>Quantidade Produzida Apontado:</strong> {item.QTD}</Typography>
+                            <Typography variant="body2">
+                              <strong>Quantidade Orcada x Apontada:</strong> {tiragemPrevista} /{" "}
+                              <Box component="span" sx={{ color: item.QTD > tiragemPrevista ? 'error.main' : 'inherit', fontWeight: 'bold' }}>
+                                {item.QTD}
+                              </Box>
+                            </Typography>
+
+                            <Typography variant="body2">
+                              <strong>Tempo (min) Orçado x Realizado:</strong> {tempoPrevistoMin} /{" "}
+                              <Box component="span" sx={{ color: item.MINUTOS > tempoPrevistoMin ? 'error.main' : 'inherit', fontWeight: 'bold' }}>
+                                {item.MINUTOS}
+                              </Box>
+                            </Typography>
+
+                          </Box>
+                        ))}
+                      </Box>
+                    ) : (
+                      <Typography variant="body2">Nenhum detalhe encontrado.</Typography>
+                    )}
+                  </TableCell>
+                </TableRow>
+              )}
+
+            </React.Fragment>
+          );
+        })}
+
       </Paper>
 
       <Paper sx={{ p: 3 }}>
@@ -531,7 +643,14 @@ export default function MaquinaDetalhes() {
             <TableHead>
               <TableRow>
                 <TableCell>Op</TableCell>
-                <TableCell>Dt. Ent.</TableCell>
+                <TableCell
+                  sx={{ cursor: 'pointer' }}
+                  onClick={ordenarPorDataEntrega}
+                >
+                  Dt. Ent. {ordenacaoEntregaAsc ? '⬆️' : '⬇️'}
+                </TableCell>
+
+
                 <TableCell>Produto(s)</TableCell>
                 <TableCell>Atividade</TableCell>
                 <TableCell>Status</TableCell>
@@ -544,11 +663,7 @@ export default function MaquinaDetalhes() {
             <TableBody>
               {dados
                 .filter((row) => row.STATUS !== "Em Andamento")
-                .sort((a, b) => {
-                  if (a.STATUS === "Programado" && b.STATUS !== "Programado") return -1;
-                  if (a.STATUS !== "Programado" && b.STATUS === "Programado") return 1;
-                  return 0;
-                })
+
                 .map((row, idx) => (
                   <TableRow
                     key={idx}

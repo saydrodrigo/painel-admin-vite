@@ -6,6 +6,7 @@ import Dashboard from "./pages/Dashboard";
 import Maquinas from "./pages/Maquinas";
 import Users from "./pages/Users";
 import { useState } from "react";
+import OrdemProducao from "./pages/OrdemProducao";
 
 export default function App() {
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -26,6 +27,7 @@ export default function App() {
         <Routes>
           <Route path="/" element={<Dashboard />} />
           <Route path="/maquinas/:codmaq" element={<Maquinas />} />
+          <Route path="/op" element={<OrdemProducao />} />
           <Route path="/usuarios" element={<Users />} />
         </Routes>
       </Box>

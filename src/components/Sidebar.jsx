@@ -106,6 +106,7 @@ export default function Sidebar({ mobileOpen, handleDrawerToggle }) {
                 key={codmqp}
                 component={NavLink}
                 to={`/maquinas/${codmqp}`}
+                state={{ nome }}
                 o onClick={() => {
                   setMaquinaSelecionada(codmqp);
                   if (isMobile) handleDrawerToggle();
@@ -134,6 +135,19 @@ export default function Sidebar({ mobileOpen, handleDrawerToggle }) {
           </ListItem>
         </List>
       </Collapse>
+      {/* Usuários */}
+      <ListItem
+        button
+        component={NavLink}
+        to="/op"
+        onClick={isMobile ? handleDrawerToggle : undefined}
+        sx={{ "&.active": { backgroundColor: "rgba(0,0,0,0.08)" } }}
+      >
+        <ListItemIcon>
+          <PeopleIcon />
+        </ListItemIcon>
+        <ListItemText primary="Ordem Produção" />
+      </ListItem>
 
       {/* Usuários */}
       <ListItem

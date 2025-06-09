@@ -117,50 +117,52 @@ const MaquinaCalendarioVisual = ({ codmaq }) => {
         return <Typography sx={{ p: 2 }}>Nenhum calendário encontrado.</Typography>;
 
     return (
-        <Box sx={{ overflowX: "auto" }}>
+        <Box sx={{ overflowX: "auto", p: 1 }}>
             <Table size="small">
                 <TableHead>
-                    <TableRow>
+                     <TableRow>
                         <TableCell colSpan={7} align="center" sx={{ fontWeight: "bold" }}>
                             {calendarios[0]?.nome}
                         </TableCell>
                     </TableRow>
                     <TableRow>
-                        <TableCell></TableCell>
-                        {diasDaSemana.map((dia) => (
-                            <TableCell key={dia} align="center">
-                                {dia}
+                        <TableCell align="left" sx={{ fontWeight: "bold" }}>
+                            Dia
+                        </TableCell>
+                        {calendarios.map((cal, idx) => (
+                            <TableCell key={idx} align="center" sx={{ fontWeight: "bold" }}>
+                                {formatarHora(cal.hrIni)} - {formatarHora(cal.hrFim)}
                             </TableCell>
                         ))}
                     </TableRow>
                 </TableHead>
                 <TableBody>
-                    {calendarios.map((cal) => (
-                        <TableRow key={cal.codcal} hover>
-                            <TableCell>
-                                {formatarHora(cal.hrIni)} {formatarHora(cal.hrFim)}
-                            </TableCell>
-                            {["segunda", "terca", "quarta", "quinta", "sexta", "sabado"].map((dia) => (
-                                <TableCell
-                                    key={dia}
-                                    align="center"
-                                    sx={{
-                                        bgcolor: cal.diasDaSemana[dia] ? "success.light" : "grey.300",
-                                        color: cal.diasDaSemana[dia] ? "success.dark" : "grey.600",
-                                        fontWeight: "bold",
-                                        cursor: cal.diasDaSemana[dia] ? "default" : "not-allowed",
-                                    }}
-                                >
-                                    {cal.diasDaSemana[dia] ? "S" : "N"}
-                                </TableCell>
-                            ))}
-                        </TableRow>
-                    ))}
+                    {diasDaSemana.map((dia, idx) => {
+                        const chave = ["segunda", "terca", "quarta", "quinta", "sexta", "sabado"][idx];
+                        return (
+                            <TableRow key={dia}>
+                                <TableCell>{dia}</TableCell>
+                                {calendarios.map((cal, i) => (
+                                    <TableCell
+                                        key={i}
+                                        align="center"
+                                        sx={{
+                                            bgcolor: cal.diasDaSemana[chave] ? "success.light" : "grey.300",
+                                            color: cal.diasDaSemana[chave] ? "success.dark" : "grey.600",
+                                            fontWeight: "bold",
+                                        }}
+                                    >
+                                        {cal.diasDaSemana[chave] ? "S" : "N"}
+                                    </TableCell>
+                                ))}
+                            </TableRow>
+                        );
+                    })}
                 </TableBody>
             </Table>
         </Box>
-
     );
+
 };
 
 export default MaquinaCalendarioVisual;
