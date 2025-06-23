@@ -18,10 +18,13 @@ import {
   Add as AddIcon,
   Dashboard as DashboardIcon,
   People as PeopleIcon,
+  Assignment as AssignmentIcon,
+  Assessment as AssessmentIcon
 } from "@mui/icons-material";
 import { NavLink } from "react-router-dom";
 import MaquinaCalendarioVisual from "./MaquinaCalendarioVisual"; // ajuste o caminho
-
+import { useAuth } from "../context/AuthContext";
+import { getMaquinas } from '../api/maquinas';
 const drawerWidth = 240;
 
 export default function Sidebar({ mobileOpen, handleDrawerToggle }) {
@@ -32,32 +35,21 @@ export default function Sidebar({ mobileOpen, handleDrawerToggle }) {
   const [maquinaSelecionada, setMaquinaSelecionada] = useState(null);
 
   const toggleMaquinas = () => setOpenMaquinas(!openMaquinas);
-
+  const { usuario } = useAuth(); // <- acesso global ao usuário
+  
   useEffect(() => {
-    async function fetchMaquinas() {
+    const carregarMaquinas = async () => {
       try {
-        const response = await fetch(
-          "http://192.168.2.3:8081/api/crud/select",
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(
-              "SELECT TOP 10 codmqp, nome FROM sankhya.TPRMQP"
-            ),
-          }
-        );
-
-        if (!response.ok) throw new Error("Erro ao buscar máquinas");
-
-        const data = await response.json();
+        const data = await getMaquinas(usuario.empresa);
         setMaquinas(data);
       } catch (error) {
-        console.error(error);
+        setErro(error.message);
         setMaquinas([]);
       }
-    }
-    fetchMaquinas();
-  }, []);
+    };
+
+    carregarMaquinas();
+  }, [usuario]);
 
   const drawer = (
     <List>
@@ -144,7 +136,7 @@ export default function Sidebar({ mobileOpen, handleDrawerToggle }) {
         sx={{ "&.active": { backgroundColor: "rgba(0,0,0,0.08)" } }}
       >
         <ListItemIcon>
-          <PeopleIcon />
+          <AssignmentIcon />
         </ListItemIcon>
         <ListItemText primary="Ordem Produção" />
       </ListItem>
@@ -153,14 +145,37 @@ export default function Sidebar({ mobileOpen, handleDrawerToggle }) {
       <ListItem
         button
         component={NavLink}
-        to="/usuarios"
+        to="/operadores"
         onClick={isMobile ? handleDrawerToggle : undefined}
         sx={{ "&.active": { backgroundColor: "rgba(0,0,0,0.08)" } }}
       >
         <ListItemIcon>
           <PeopleIcon />
         </ListItemIcon>
-        <ListItemText primary="Usuários" />
+        <ListItemText primary="Operadores" />
+      </ListItem>
+      <ListItem
+        button
+        component={NavLink}
+        to="/mrp"
+        onClick={isMobile ? handleDrawerToggle : undefined}
+        sx={{ "&.active": { backgroundColor: "rgba(0,0,0,0.08)" } }}
+      >
+        <ListItemIcon>
+          <AssessmentIcon />
+        </ListItemIcon>
+        <ListItemText primary="MRP" />
+      </ListItem>
+      <ListItem
+        button
+        component={NavLink}
+        to="/mrpPorOp"
+        onClick={isMobile ? handleDrawerToggle : undefined}
+        sx={{ "&.active": { backgroundColor: "rgba(0,0,0,0.08)" } }}
+      ><ListItemIcon>
+          <AssessmentIcon />
+        </ListItemIcon>
+        <ListItemText primary="MRP Por OP" />
       </ListItem>
     </List>
   );

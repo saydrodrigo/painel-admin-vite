@@ -10,6 +10,7 @@ import {
     CircularProgress,
     Typography,
 } from "@mui/material";
+import { getCalendarioMaquina } from "../api/maquinas";
 
 const diasDaSemana = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sab"];
 
@@ -49,40 +50,7 @@ const MaquinaCalendarioVisual = ({ codmaq }) => {
     useEffect(() => {
         async function fetchDados() {
             try {
-                const query = `
-          SELECT
-            B.CODMQP
-            ,B.NOME
-            ,CODCAL
-            ,TIPO
-            ,DOMINGO
-            ,SEGUNDA
-            ,TERCA
-            ,QUARTA
-            ,QUINTA	
-            ,SEXTA
-            ,SABADO
-            ,HRINI
-            ,HRFIM
-            ,DIAS_DA_SEMANA
-            FROM sankhya.AD_TPRMCAL A
-            INNER JOIN sankhya.TPRMQP B ON
-                B.CODMQP = A.CODMQP
-            WHERE
-                A.CODMQP = ${codmaq}
-          
-        `;
-
-                const response = await fetch(
-                    "http://192.168.2.3:8081/api/crud/select",
-                    {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify(query),
-                    }
-                );
-
-                const data = await response.json();
+                const data = await getCalendarioMaquina(codmaq);
                 const dadosFormatados = data.map(parseMachineCalendar);
                 setCalendarios(dadosFormatados);
             } catch (error) {
@@ -120,7 +88,7 @@ const MaquinaCalendarioVisual = ({ codmaq }) => {
         <Box sx={{ overflowX: "auto", p: 1 }}>
             <Table size="small">
                 <TableHead>
-                     <TableRow>
+                    <TableRow>
                         <TableCell colSpan={7} align="center" sx={{ fontWeight: "bold" }}>
                             {calendarios[0]?.nome}
                         </TableCell>

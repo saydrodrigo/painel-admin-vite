@@ -18,7 +18,7 @@ export function calcularFimDaOP(DHINI, tempoNecessarioMinutos, calendarios = [])
   let diaAtual = new Date(inicio.getFullYear(), inicio.getMonth(), inicio.getDate());
 
   let fimEstimado = null;
-
+    
   while (tempoRestante > 0) {
     const nomeDia = diaSemanaToStr(getDay(diaAtual));
 

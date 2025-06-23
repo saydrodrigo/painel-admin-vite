@@ -14,6 +14,10 @@ export function encontrarHorarioValidoParaOP(tentativa, calendarios) {
   const haDiaProdutivo = diaSemanaMap.some(dia =>
     calendarios.some(cal => cal.tipo === 'P' && cal.diasDaSemana[dia])
   );
+  console.log(haDiaProdutivo);
+  console.log("tentativa");
+  console.log(calendarios);
+
   if (!haDiaProdutivo) return null;
 
   let tentativas = 0;

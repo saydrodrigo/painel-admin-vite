@@ -9,6 +9,7 @@ import {
     CircularProgress,
 } from "@mui/material";
 import { format, parseISO } from "date-fns";
+import { getEtapasOrcadasOrdemProducao, getEtapasRealizadasOrdemProducao } from "../api/ordemProducao";
 
 function TabPanel({ children, value, index }) {
     return value === index && <Box sx={{ pt: 2 }}>{children}</Box>;
@@ -35,56 +36,23 @@ export default function DetalheOPComAbas({ op }) {
     }, [op]);
 
     const hhmmToMinutes = (hhmm) => {
-    const horas = Math.floor(hhmm / 100);
-    const minutos = hhmm % 100;
-    return horas * 60 + minutos;
-  };
+        const horas = Math.floor(hhmm / 100);
+        const minutos = hhmm % 100;
+        return horas * 60 + minutos;
+    };
 
     const carregarAba = async (index) => {
         console.log(op);
         setAba(index);
         if (index === 0 && !etapasOrcado && !etapasRealizado) {
-            // Etapas Orçado
-            const queryEtapasOrcado = `SELECT
-                    A.CODATIVIDADE
-                    ,PRO.DESCRPROD AS SERVICO
-                    ,A.TIRAGEM
-                    ,A.TEMPOTOTAL
-                    FROM sankhya.AD_CONTOP3B A
-                    INNER JOIN sankhya.TGFPRO PRO ON
-                        PRO.CODPROD = A.CODATIVIDADE
-                    WHERE
-                        A.NUOP = ${op.NUOP}`;
-            const res1 = await fetch("http://192.168.2.3:8081/api/crud/select", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(queryEtapasOrcado),
-            });
-            setEtapasOrcado(await res1.json());
+
+            setEtapasOrcado(await getEtapasOrcadasOrdemProducao(op.NUOP));
 
             // Etapas Realizado
-            const queryEtapasRealizado = `SELECT
-                    A.CODATIVIDADE
-                    ,PRO.DESCRPROD AS SERVICO
-                    ,SUM(A.QTD) AS TIRAGEM
-                    ,SUM(DATEDIFF(MINUTE, A.DHINICIO, A.DHFIM)) AS TEMPOTOTAL
-                    FROM sankhya.AD_CADAPONTPROD A
-                    INNER JOIN sankhya.TGFPRO PRO ON
-                        PRO.CODPROD = A.CODATIVIDADE
-                    WHERE
-                        A.NUOP = ${op.NUOP}
-                    AND A.CODTIPAPONT = 8
-                    GROUP BY
-                        A.CODATIVIDADE
-                    ,PRO.DESCRPROD `;
-            const res2 = await fetch("http://192.168.2.3:8081/api/crud/select", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(queryEtapasRealizado),
-            });
-            setEtapasRealizado(await res2.json());
-        }
 
+            setEtapasRealizado(await getEtapasRealizadasOrdemProducao(op.NUOP));
+        }
+        /*
         if (index === 1 && !materiaisOrcado && !materiaisRealizado) {
             // Materiais Orçado (BOM)
             const queryMateriaisOrcado = `-- sua query para materiais planejados usando NUOP: ${op.NUOP}`;
@@ -104,6 +72,7 @@ export default function DetalheOPComAbas({ op }) {
             });
             setMateriaisRealizado(await res2.json());
         }
+            */
     };
 
     const formatarData = (data) =>

@@ -30,6 +30,9 @@ import {
 import { useCalendarioMaquina } from "../hooks/useCalendarioMaquina";
 import { useCalendarioDisponivel } from "../hooks/useValidarDisponibilidade";
 import { calcularFimDaOP } from "../hooks/calcularFimDaOP";
+import { useAuth } from "../context/AuthContext";
+import { getAtividadesPorMaquina } from "../api/maquinas";
+import { getDadosApontamento } from "../api/apontamentos";
 
 
 
@@ -53,49 +56,13 @@ export default function MaquinaDetalhes() {
   const [linhaExpandida, setLinhaExpandida] = useState(null);
   const [detalheOP, setDetalheOP] = useState(null);
   const [loadingDetalhe, setLoadingDetalhe] = useState(false);
-
+  const { usuario } = useAuth(); // <- acesso global ao usuário
 
 
   useEffect(() => {
     async function fetchDados() {
       try {
-        const query = `
-          SELECT TOP 100
-            A.NUOP
-            ,sankhya.FC_GET_OPCAO_CAMPO('AD_PCPCEN', 'STATUS', A.STATUS) AS STATUS
-            ,A.CODATIVIDADE
-            ,SER.DESCRPROD
-            ,A.CODETAPA
-            ,A.DH_I AS DHINI
-            ,A.DH_F AS DHFIM
-            ,A.PRODUTOS
-            ,A.TEMPOTOTAL
-            ,sankhya.FC_HRMOV_HRBR(TEMPOTOTAL) TEMPOTOTALFORMATADO
-
-            ,A.TIRAGEM
-            ,ETA.NOMEETAPA AS ETAPA
-            ,A.DT_ENTREGA AS DTENTREGA
-          FROM sankhya.AD_PCPCEN A
-          INNER JOIN sankhya.TGFPRO SER ON SER.CODPROD = A.CODATIVIDADE
-          INNER JOIN sankhya.TGFETA ETA ON ETA.CODETAPA = A.CODETAPA
-          WHERE A.CODMQP = ${codmaq}
-          AND A.STATUS NOT IN('F', 'C')
-          ORDER BY
-            CASE WHEN STATUS = 'AP' AND A.DH_I IS NULL THEN 2 ELSE 1 END ASC,
-            A.DH_I ASC     
-          
-        `;
-
-        const response = await fetch(
-          "http://192.168.2.3:8081/api/crud/select",
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(query),
-          }
-        );
-
-        const data = await response.json();
+        const data = await getAtividadesPorMaquina(codmaq, usuario.empresa);
         setDados(data.filter(item => item.STATUS !== "Em Andamento"));
         setDadosEmAndamento(data.filter(item => item.STATUS === "Em Andamento"));
       } catch (error) {
@@ -107,7 +74,7 @@ export default function MaquinaDetalhes() {
     }
 
     fetchDados();
-  }, [codmaq]);
+  }, [codmaq], [usuario.empresa]);
 
   if (loading) {
     return (
@@ -169,35 +136,7 @@ export default function MaquinaDetalhes() {
     try {
       setLoadingDetalhe(true);
       setDetalheOP(null);
-
-      const query = `
-      SELECT
-         MQP.CODMQP
-        ,MQP.NOME
-        ,SER.DESCRPROD AS SERVICO
-        ,MIN(A.DHINICIO) AS INI
-        ,MAX(A.DHFIM) AS FIM
-        ,SUM(DATEDIFF(MINUTE, A.DHINICIO, A.DHFIM)) AS MINUTOS
-        ,SUM(A.QTD) AS QTD
-        ,USU.CODUSU
-        ,USU.NOMEUSU
-      FROM sankhya.AD_CADAPONTPROD A
-      LEFT JOIN sankhya.TSIUSU USU ON USU.CODUSU = A.CODOPERADOR
-      LEFT JOIN sankhya.TPRMQP MQP ON MQP.CODMQP = A.CODMQP
-      LEFT JOIN sankhya.TGFPRO SER ON SER.CODPROD = A.CODATIVIDADE
-      WHERE A.NUOP = ${nuop}
-        AND A.CODATIVIDADE = ${codatividade}
-        AND A.CODMQP = ${codmaq}
-      GROUP BY MQP.CODMQP, MQP.NOME, SER.DESCRPROD, USU.CODUSU, USU.NOMEUSU
-    `;
-
-      const response = await fetch("http://192.168.2.3:8081/api/crud/select", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(query),
-      });
-
-      const data = await response.json();
+      const data = await getDadosApontamento(codatividade, usuario.empresa, nuop);
       setDetalheOP(data);
     } catch (error) {
       console.error("Erro ao buscar detalhes da OP:", error);
@@ -344,6 +283,11 @@ export default function MaquinaDetalhes() {
   };
 
   const programarOP = (opSelecionada) => {
+    if (opSelecionada.STATUS === "Programado") {
+      console.log("OP já programada — ignorando clique duplo.");
+      return;
+    }
+
     const listaAtual = dados
       .filter((row) => row.STATUS !== "Em Andamento")
       .sort((a, b) => {
@@ -359,7 +303,10 @@ export default function MaquinaDetalhes() {
     if (idxSelecionado === 0) {
       // É o primeiro item da fila → usar encontrarHorarioValidoParaOP
       tentativaInicio = encontrarHorarioValidoParaOP(new Date(), calendario);
-      console.log(tentativaInicio);
+      if (!tentativaInicio) {
+        mostrarSnackbar('Não encontrei uma data de início válida no calendário para programar.');
+        return;
+      }
     } else {
       // Para os demais, usar o fim da OP anterior
       let ultimaProgramadaAntes = null;
@@ -542,82 +489,94 @@ export default function MaquinaDetalhes() {
           Em Andamento
         </Typography>
 
-        {dadosEmAndamento.map((row, idx) => {
-          const estaExpandido = linhaExpandida === idx;
-          const tiragemPrevista = Number(row.TIRAGEM);
-          const tempoPrevistoMin = hhmmToMinutes(Number(row.TEMPOTOTAL));
+        <Table size="small">
+          <TableHead>
+            <TableRow>
+              <TableCell>OP</TableCell>
+              <TableCell>Data Entrega</TableCell>
+              <TableCell>Produto(s)</TableCell>
+              <TableCell>Descrição</TableCell>
+              <TableCell>Etapa</TableCell>
+              <TableCell>Tempo Total</TableCell>
+            </TableRow>
+          </TableHead>
 
-          return (
-            <React.Fragment key={idx}>
-              <TableRow
-                hover
-                onClick={() => {
-                  if (linhaExpandida === idx) {
-                    setLinhaExpandida(null);
-                    setDetalheOP(null);
-                  } else {
-                    setLinhaExpandida(idx);
+          <TableBody>
+            {dadosEmAndamento.map((row, idx) => {
+              const estaExpandido = linhaExpandida === idx;
+              const tiragemPrevista = Number(row.TIRAGEM);
+              const tempoPrevistoMin = hhmmToMinutes(Number(row.TEMPOTOTAL));
 
+              return (
+                <React.Fragment key={idx}>
+                  <TableRow
+                    hover
+                    onClick={() => {
+                      if (linhaExpandida === idx) {
+                        setLinhaExpandida(null);
+                        setDetalheOP(null);
+                      } else {
+                        setLinhaExpandida(idx);
+                        buscarDetalheOP(row.NUOP, row.CODATIVIDADE);
+                      }
+                    }}
+                    sx={{ cursor: "pointer" }}
+                  >
+                    <TableCell>{row.NUOP}</TableCell>
+                    <TableCell>{row.DTENTREGA ? format(parseISO(row.DTENTREGA), "dd/MM/yyyy") : "—"}</TableCell>
+                    <TableCell>{row.PRODUTOS}</TableCell>
+                    <TableCell>{row.DESCRPROD}</TableCell>
+                    <TableCell>{row.ETAPA}</TableCell>
+                    <TableCell>{row.TEMPOTOTALFORMATADO}</TableCell>
+                  </TableRow>
 
-                    buscarDetalheOP(row.NUOP, row.CODATIVIDADE);
-                  }
-                }}
+                  {estaExpandido && (
+                    <TableRow>
+                      <TableCell colSpan={6} sx={{ bgcolor: "grey.100" }}>
+                        {loadingDetalhe ? (
+                          <CircularProgress size={20} />
+                        ) : detalheOP && detalheOP.length > 0 ? (
+                          <Box sx={{ p: 1 }}>
+                            {detalheOP.map((item, i) => (
+                              <Box key={i} sx={{ mb: 1 }}>
+                                <Typography variant="body2"><strong>Operador:</strong> {item.NOMEUSU} ({item.CODUSU})</Typography>
+                                <Typography variant="body2"><strong>Serviço:</strong> {item.SERVICO}</Typography>
+                                <Typography variant="body2">
+                                  <strong>Período:</strong>{" "}
+                                  {item.INI ? format(parseISO(item.INI), "dd/MM/yyyy HH:mm") : "--"} -{" "}
+                                  {item.FIM ? format(parseISO(item.FIM), "dd/MM/yyyy HH:mm") : "Em Andamento"}
+                                </Typography>
 
-                sx={{ cursor: "pointer" }}
-              >
-                <TableCell>{row.NUOP}</TableCell>
-                <TableCell>{format(parseISO(row.DTENTREGA), "dd/MM/yyyy")}</TableCell>
-                <TableCell>{row.PRODUTOS}</TableCell>
-                <TableCell>{row.DESCRPROD}</TableCell>
-                <TableCell>{row.ETAPA}</TableCell>
-                <TableCell>{row.TEMPOTOTALFORMATADO}</TableCell>
-              </TableRow>
-
-              {linhaExpandida === idx && (
-
-                <TableRow>
-                  <TableCell colSpan={6} sx={{ bgcolor: "grey.100" }}>
-                    {loadingDetalhe ? (
-                      <CircularProgress size={20} />
-                    ) : detalheOP && detalheOP.length > 0 ? (
-                      <Box sx={{ p: 1 }}>
-                        {detalheOP.map((item, i) => (
-
-                          <Box key={i} sx={{ mb: 1 }}>
-                            <Typography variant="body2"><strong>Operador:</strong> {item.NOMEUSU} ({item.CODUSU})</Typography>
-                            <Typography variant="body2"><strong>Serviço:</strong> {item.SERVICO}</Typography>
-                            <Typography variant="body2"><strong>Período:</strong> {format(parseISO(item.INI), "dd/MM/yyyy HH:mm")} - {format(parseISO(item.FIM), "dd/MM/yyyy HH:mm")}</Typography>
-                            <Typography variant="body2"><strong>Tempo Rodando Apontado:</strong> {item.MINUTOS} minutos</Typography>
-                            <Typography variant="body2"><strong>Quantidade Produzida Apontado:</strong> {item.QTD}</Typography>
-                            <Typography variant="body2">
-                              <strong>Quantidade Orcada x Apontada:</strong> {tiragemPrevista} /{" "}
-                              <Box component="span" sx={{ color: item.QTD > tiragemPrevista ? 'error.main' : 'inherit', fontWeight: 'bold' }}>
-                                {item.QTD}
+                                <Typography variant="body2"><strong>Tempo Rodando Apontado:</strong> {item.MINUTOS} minutos</Typography>
+                                <Typography variant="body2"><strong>Quantidade Produzida Apontado:</strong> {item.QTD}</Typography>
+                                <Typography variant="body2">
+                                  <strong>Quantidade Orcada x Apontada:</strong> {tiragemPrevista} /{" "}
+                                  <Box component="span" sx={{ color: item.QTD > tiragemPrevista ? 'error.main' : 'inherit', fontWeight: 'bold' }}>
+                                    {item.QTD}
+                                  </Box>
+                                </Typography>
+                                <Typography variant="body2">
+                                  <strong>Tempo (min) Orçado x Realizado:</strong> {tempoPrevistoMin} /{" "}
+                                  <Box component="span" sx={{ color: item.MINUTOS > tempoPrevistoMin ? 'error.main' : 'inherit', fontWeight: 'bold' }}>
+                                    {item.MINUTOS}
+                                  </Box>
+                                </Typography>
                               </Box>
-                            </Typography>
-
-                            <Typography variant="body2">
-                              <strong>Tempo (min) Orçado x Realizado:</strong> {tempoPrevistoMin} /{" "}
-                              <Box component="span" sx={{ color: item.MINUTOS > tempoPrevistoMin ? 'error.main' : 'inherit', fontWeight: 'bold' }}>
-                                {item.MINUTOS}
-                              </Box>
-                            </Typography>
-
+                            ))}
                           </Box>
-                        ))}
-                      </Box>
-                    ) : (
-                      <Typography variant="body2">Nenhum detalhe encontrado.</Typography>
-                    )}
-                  </TableCell>
-                </TableRow>
-              )}
-
-            </React.Fragment>
-          );
-        })}
-
+                        ) : (
+                          <Typography variant="body2">Nenhum detalhe encontrado.</Typography>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </React.Fragment>
+              );
+            })}
+          </TableBody>
+        </Table>
       </Paper>
+
 
       <Paper sx={{ p: 3 }}>
         <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>

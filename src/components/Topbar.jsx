@@ -1,37 +1,46 @@
-import React from "react";
-import {
-  AppBar,
-  Toolbar,
-  Typography,
-  IconButton,
-  useTheme,
-  useMediaQuery,
-} from "@mui/material";
+// src/components/Topbar.jsx
+import { AppBar, Toolbar, Typography, Box, IconButton, Button } from "@mui/material";
 import MenuIcon from "@mui/icons-material/Menu";
+import AccountCircle from "@mui/icons-material/AccountCircle";
+import LogoutIcon from "@mui/icons-material/Logout";
+import { useAuth } from "../context/AuthContext";
+import { useNavigate } from "react-router-dom";
 
 export default function Topbar({ onMenuClick }) {
-  const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down("md"));
+  const { usuario, logout } = useAuth();
+  const navigate = useNavigate();
+
+  const handleLogout = () => {
+    logout();
+    navigate("/login", { replace: true });
+  };
 
   return (
-    <AppBar
-      position="fixed"
-      sx={{ zIndex: (theme) => theme.zIndex.drawer + 1 }}
-    >
+    <AppBar position="fixed" sx={{ zIndex: (theme) => theme.zIndex.drawer + 1 }}>
       <Toolbar>
-        {isMobile && (
-          <IconButton
-            edge="start"
-            color="inherit"
-            onClick={onMenuClick}
-            sx={{ mr: 2 }}
-          >
-            <MenuIcon />
-          </IconButton>
-        )}
-        <Typography variant="h6" noWrap>
-          Painel Administrativo
+        <IconButton color="inherit" edge="start" onClick={onMenuClick} sx={{ mr: 2 }}>
+          <MenuIcon />
+        </IconButton>
+
+        <Typography variant="h6" noWrap component="div" sx={{ flexGrow: 1 }}>
+          Sistema de Produção
         </Typography>
+
+        {usuario && (
+          <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
+            <AccountCircle />
+            <Typography>{usuario.nome}</Typography>
+            <Button
+              onClick={handleLogout}
+              variant="outlined"
+              color="inherit"
+              size="small"
+              startIcon={<LogoutIcon />}
+            >
+              Sair
+            </Button>
+          </Box>
+        )}
       </Toolbar>
     </AppBar>
   );
